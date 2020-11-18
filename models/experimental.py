@@ -6,6 +6,8 @@ import torch.nn as nn
 
 from models.common import Conv, DWConv
 from utils.google_utils import attempt_download
+import models.yolo as yolo
+from modules.models.yolov5.submodule.utils.activations import Hardswish
 
 
 class CrossConv(nn.Module):
@@ -128,6 +130,17 @@ class Ensemble(nn.ModuleList):
         y = torch.stack(y).mean(0)  # mean ensemble
         return y, None  # inference, train output
 
+def set_hardswish_recursive(model):
+    for layer in model.children():
+        if isinstance(layer, nn.Sequential) or isinstance(layer, Ensemble) or isinstance(layer, yolo.Model) or list(layer.children()) != []: # if sequential layer, apply recursively to layers in sequential layer
+            set_hardswish_recursive(layer)
+        if list(layer.children()) == [] or type(layer) is Conv: # if leaf node, add it to list
+            layer._non_persistent_buffers_set = set()
+            if type(layer) in [nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6]:
+                layer.inplace = True  # pytorch 1.7.0 compatibility
+            elif type(layer) is Conv:
+                if isinstance(layer.act, nn.Hardswish):
+                    layer.act = Hardswish()
 
 def attempt_load(weights, map_location=None):
     # Loads an ensemble of models weights=[a,b,c] or a single model weights=[a] or weights=a
@@ -136,13 +149,8 @@ def attempt_load(weights, map_location=None):
         attempt_download(w)
         model.append(torch.load(w, map_location=map_location)['model'].float().fuse().eval())  # load FP32 model
 
-    # Compatibility updates
-    for m in model.modules():
-        if type(m) in [nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6]:
-            m.inplace = True  # pytorch 1.7.0 compatibility
-        elif type(m) is Conv:
-            m._non_persistent_buffers_set = set()  # pytorch 1.6.0 compatibility
-
+    set_hardswish_recursive(model)
+    
     if len(model) == 1:
         return model[-1]  # return model
     else:
