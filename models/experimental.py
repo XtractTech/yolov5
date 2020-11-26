@@ -7,7 +7,7 @@ import torch.nn as nn
 from models.common import Conv, DWConv
 from utils.google_utils import attempt_download
 import models.yolo as yolo
-from modules.models.yolov5.submodule.utils.activations import Hardswish
+from utils.activations import Hardswish
 
 
 class CrossConv(nn.Module):
